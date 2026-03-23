@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+services/backend/node_modules/
+services/admin/node_modules/
+
+# Environment files (never commit secrets)
+.env
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+.env
+.env.example
