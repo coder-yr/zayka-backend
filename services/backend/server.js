@@ -17,6 +17,7 @@ const orderRoutes = require('./components/orders/routes');
 const tableRoutes = require('./components/tables/routes');
 const analyticsRoutes = require('./components/analytics/routes');
 const featuresRoutes = require('./components/features/routes');
+const pricingRoutes = require('./components/pricing/routes');
 
 const app = express();
 
@@ -66,6 +67,7 @@ app.use(`${prefix}/orders`, orderRoutes);
 app.use(`${prefix}/tables`, tableRoutes);
 app.use(`${prefix}/analytics`, analyticsRoutes);
 app.use(`${prefix}/features`, featuresRoutes);
+app.use(`${prefix}/pricing`, pricingRoutes);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -92,7 +94,11 @@ async function startServer() {
     await db.sequelize.authenticate();
     console.log('✅ Database connection established.');
 
-    await db.sequelize.sync({ alter: env.NODE_ENV === 'development' });
+    const syncOptions = {
+      alter: env.DB_SYNC_ALTER,
+      force: env.DB_SYNC_FORCE,
+    };
+    await db.sequelize.sync(syncOptions);
     console.log('✅ Database models synchronized.');
 
     app.listen(PORT, () => {

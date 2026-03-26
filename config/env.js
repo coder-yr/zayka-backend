@@ -10,6 +10,8 @@ module.exports = {
   DB_USER: process.env.DB_USER || 'root',
   DB_PASSWORD: process.env.DB_PASSWORD || '',
   DB_DIALECT: process.env.DB_DIALECT || 'mysql',
+  DB_SYNC_ALTER: process.env.DB_SYNC_ALTER === 'true',
+  DB_SYNC_FORCE: process.env.DB_SYNC_FORCE === 'true',
 
   // Ports
   API_PORT: parseInt(process.env.API_PORT, 10) || 5000,

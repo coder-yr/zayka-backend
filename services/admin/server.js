@@ -47,7 +47,11 @@ async function startServer() {
     await db.sequelize.authenticate();
     console.log('✅ Database connection established.');
 
-    await db.sequelize.sync({ alter: env.NODE_ENV === 'development' });
+    const syncOptions = {
+      alter: env.DB_SYNC_ALTER,
+      force: env.DB_SYNC_FORCE,
+    };
+    await db.sequelize.sync(syncOptions);
     await sessionStore.sync();
     console.log('✅ Database models synchronized.');
 
