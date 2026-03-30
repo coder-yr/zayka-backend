@@ -18,11 +18,17 @@ const tableRoutes = require('./components/tables/routes');
 const analyticsRoutes = require('./components/analytics/routes');
 const featuresRoutes = require('./components/features/routes');
 const pricingRoutes = require('./components/pricing/routes');
+const geoRoutes = require('./components/geo/routes');
+const homeContentRoutes = require('./components/home-content/routes');
 
 const app = express();
 
 // ─── Security Middleware ──────────────────────────────────────────────────────
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
 app.use(
@@ -52,7 +58,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 // ─── Static Files ─────────────────────────────────────────────────────────────
-app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/public', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use('/public', express.static(path.resolve(__dirname, '../../public')));
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -68,6 +78,8 @@ app.use(`${prefix}/tables`, tableRoutes);
 app.use(`${prefix}/analytics`, analyticsRoutes);
 app.use(`${prefix}/features`, featuresRoutes);
 app.use(`${prefix}/pricing`, pricingRoutes);
+app.use(`${prefix}/geo`, geoRoutes);
+app.use(`${prefix}/home-content`, homeContentRoutes);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {

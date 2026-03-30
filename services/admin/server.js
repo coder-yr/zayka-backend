@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
 const createAdmin = require('./admin');
@@ -37,13 +38,22 @@ app.get('/health', (req, res) => {
 });
 
 // ─── Static Files ─────────────────────────────────────────────────────────────
-app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/public', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use('/public', express.static(path.resolve(__dirname, '../../public')));
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const PORT = appConfig.admin.port;
+const formidableUploadDir = path.resolve(__dirname, '../../public/uploads/tmp');
 
 async function startServer() {
   try {
+    if (!fs.existsSync(formidableUploadDir)) {
+      fs.mkdirSync(formidableUploadDir, { recursive: true });
+    }
+
     await db.sequelize.authenticate();
     console.log('✅ Database connection established.');
 
@@ -59,6 +69,10 @@ async function startServer() {
       import('@adminjs/express'),
       createAdmin(),
     ]);
+
+    if (env.NODE_ENV === 'development') {
+      adminJs.watch();
+    }
 
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(
       adminJs,
@@ -80,7 +94,11 @@ async function startServer() {
         cookiePassword: env.JWT_SECRET,
       },
       null,
-      sessionOptions
+      sessionOptions,
+      {
+        uploadDir: formidableUploadDir,
+        keepExtensions: true,
+      }
     );
 
     app.use(adminJs.options.rootPath, adminRouter);

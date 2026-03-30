@@ -1,11 +1,14 @@
 const db = require('./db');
 const appConfig = require('../../config/appConfig');
+const path = require('path');
 
 async function createAdmin() {
-  const [{ default: AdminJS }, AdminJSSequelize] = await Promise.all([
+  const [{ default: AdminJS, ComponentLoader }, AdminJSSequelize, { default: uploadFeature }] = await Promise.all([
     import('adminjs'),
     import('@adminjs/sequelize'),
+    import('@adminjs/upload'),
   ]);
+  const componentLoader = new ComponentLoader();
 
   AdminJS.registerAdapter({
     Resource: AdminJSSequelize.Resource,
@@ -387,6 +390,389 @@ async function createAdmin() {
     },
   };
 
+  const uploadBase = path.resolve(__dirname, '../../public');
+
+  const pickAllowedFields = (payload = {}, allowedFields = []) => {
+    const sanitized = {};
+    allowedFields.forEach((field) => {
+      if (payload[field] !== undefined) {
+        sanitized[field] = payload[field];
+      }
+    });
+    return sanitized;
+  };
+
+  const normalizeHomeContentPayload = (payload = {}) => {
+    const next = { ...payload };
+
+    const stringFields = [
+      'key',
+      'heroBadge',
+      'heroHeading',
+      'heroDescription',
+      'heroCtaText',
+      'heroImageUrl',
+      'heroImageAlt',
+      'mainBadgeLabel',
+      'mainTitle',
+      'mainDescription',
+      'mainRating',
+      'mainRatingCount',
+      'mainCtaText',
+      'mainImageUrl',
+      'mainImageAlt',
+      'sideBadgeLabel',
+      'sideTitle',
+      'sideDescription',
+      'sideCtaText',
+      'sideImageUrl',
+      'sideImageAlt',
+    ];
+
+    stringFields.forEach((field) => {
+      if (typeof next[field] === 'string') {
+        const trimmed = next[field].trim();
+        if (!trimmed) {
+          delete next[field];
+        } else {
+          next[field] = trimmed;
+        }
+      }
+    });
+
+    const parsePrice = (raw) => {
+      if (raw === null || raw === undefined || raw === '') return undefined;
+      const asString = String(raw).replace(/[^\d.-]/g, '');
+      const parsed = Number(asString);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const mainPrice = parsePrice(next.mainPrice);
+    if (mainPrice === undefined) delete next.mainPrice;
+    else next.mainPrice = mainPrice;
+
+    const sidePrice = parsePrice(next.sidePrice);
+    if (sidePrice === undefined) delete next.sidePrice;
+    else next.sidePrice = sidePrice;
+
+    if (next.isActive !== undefined) {
+      if (typeof next.isActive === 'string') {
+        const normalized = next.isActive.toLowerCase();
+        next.isActive = normalized === 'true' || normalized === '1' || normalized === 'on';
+      } else {
+        next.isActive = Boolean(next.isActive);
+      }
+    }
+
+    if (next.mainBadgeColor !== undefined) {
+      const allowed = ['green', 'red'];
+      if (!allowed.includes(String(next.mainBadgeColor))) {
+        delete next.mainBadgeColor;
+      }
+    }
+
+    if (next.sideBadgeColor !== undefined) {
+      const allowed = ['green', 'red'];
+      if (!allowed.includes(String(next.sideBadgeColor))) {
+        delete next.sideBadgeColor;
+      }
+    }
+
+    return next;
+  };
+
+  // Only allow updating mutable DB columns (never id or createdAt)
+  const HOME_CONTENT_ALLOWED_FIELDS = [
+    'key',
+    'heroBadge',
+    'heroHeading',
+    'heroDescription',
+    'heroCtaText',
+    'heroImageUrl',
+    'heroImageAlt',
+    'mainBadgeLabel',
+    'mainBadgeColor',
+    'mainTitle',
+    'mainDescription',
+    'mainPrice',
+    'mainRating',
+    'mainRatingCount',
+    'mainCtaText',
+    'mainImageUrl',
+    'mainImageAlt',
+    'sideBadgeLabel',
+    'sideBadgeColor',
+    'sideTitle',
+    'sideDescription',
+    'sidePrice',
+    'sideCtaText',
+    'sideImageUrl',
+    'sideImageAlt',
+    'isActive',
+  ];
+
+  const buildImageUploadFeature = ({ folder, keyProperty, fileProperty }) =>
+    uploadFeature({
+      componentLoader,
+      provider: {
+        local: {
+          bucket: uploadBase,
+          opts: { baseUrl: '/public' },
+        },
+      },
+      properties: {
+        key: keyProperty,
+        file: fileProperty,
+        filePath: `${fileProperty}Path`,
+        filesToDelete: `${fileProperty}ToDelete`,
+      },
+      uploadPath: (record, filename) => {
+        const id = record?.params?.id || 'new';
+        const safeName = String(filename || 'file').replace(/\s+/g, '-');
+        return `uploads/home/${folder}/${id}-${Date.now()}-${safeName}`;
+      },
+      validation: {
+        mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'],
+      },
+    });
+
+  const homeContentResource = {
+    resource: db.HomeContent,
+    options: {
+      navigation: { name: 'Website Content', icon: 'Home' },
+      listProperties: ['key', 'heroHeading', 'isActive', 'updatedAt'],
+      filterProperties: ['key', 'isActive'],
+      showProperties: [
+        'key',
+        'heroBadge',
+        'heroHeading',
+        'heroDescription',
+        'heroCtaText',
+        'heroImageUrl',
+        'heroImageAlt',
+        'mainBadgeLabel',
+        'mainBadgeColor',
+        'mainTitle',
+        'mainDescription',
+        'mainPrice',
+        'mainRating',
+        'mainRatingCount',
+        'mainCtaText',
+        'mainImageUrl',
+        'mainImageAlt',
+        'sideBadgeLabel',
+        'sideBadgeColor',
+        'sideTitle',
+        'sideDescription',
+        'sidePrice',
+        'sideCtaText',
+        'sideImageUrl',
+        'sideImageAlt',
+        'isActive',
+        'updatedAt',
+      ],
+      editProperties: [
+        'heroBadge',
+        'heroHeading',
+        'heroDescription',
+        'heroCtaText',
+        'heroImageFile',
+        'heroImageAlt',
+        'mainBadgeLabel',
+        'mainBadgeColor',
+        'mainTitle',
+        'mainDescription',
+        'mainPrice',
+        'mainRating',
+        'mainRatingCount',
+        'mainCtaText',
+        'mainImageFile',
+        'mainImageAlt',
+        'sideBadgeLabel',
+        'sideBadgeColor',
+        'sideTitle',
+        'sideDescription',
+        'sidePrice',
+        'sideCtaText',
+        'sideImageFile',
+        'sideImageAlt',
+        'isActive',
+      ],
+      properties: {
+        key: { isVisible: { list: true, filter: true, show: true, edit: false } },
+        createdAt: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        updatedAt: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        heroDescription: { type: 'textarea' },
+        mainDescription: { type: 'textarea' },
+        sideDescription: { type: 'textarea' },
+        mainBadgeColor: {
+          availableValues: [
+            { value: 'green', label: 'Green' },
+            { value: 'red', label: 'Red' },
+          ],
+        },
+        sideBadgeColor: {
+          availableValues: [
+            { value: 'green', label: 'Green' },
+            { value: 'red', label: 'Red' },
+          ],
+        },
+        heroImageFile: { isVisible: { list: false, filter: false, show: false, edit: true } },
+        mainImageFile: { isVisible: { list: false, filter: false, show: false, edit: true } },
+        sideImageFile: { isVisible: { list: false, filter: false, show: false, edit: true } },
+        heroImageUrl: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        mainImageUrl: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        sideImageUrl: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        heroImageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        mainImageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        sideImageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        heroImageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        mainImageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        sideImageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+      },
+      actions: {
+        new: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const picked = pickAllowedFields(request.payload || {}, HOME_CONTENT_ALLOWED_FIELDS);
+            const payload = normalizeHomeContentPayload(picked);
+
+            return { ...request, payload };
+          },
+        },
+        edit: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const picked = pickAllowedFields(request.payload || {}, HOME_CONTENT_ALLOWED_FIELDS);
+            const payload = normalizeHomeContentPayload(picked);
+
+            return { ...request, payload };
+          },
+        },
+      },
+    },
+    features: [
+      buildImageUploadFeature({ folder: 'hero', keyProperty: 'heroImageUrl', fileProperty: 'heroImageFile' }),
+      buildImageUploadFeature({ folder: 'trending-main', keyProperty: 'mainImageUrl', fileProperty: 'mainImageFile' }),
+      buildImageUploadFeature({ folder: 'trending-side', keyProperty: 'sideImageUrl', fileProperty: 'sideImageFile' }),
+    ],
+  };
+
+  const homeCategoryResource = {
+    resource: db.HomeCategory,
+    options: {
+      navigation: { name: 'Website Content', icon: 'Category' },
+      listProperties: ['name', 'displayOrder', 'isActive', 'updatedAt'],
+      filterProperties: ['name', 'isActive'],
+      editProperties: ['name', 'imageFile', 'displayOrder', 'isActive'],
+      properties: {
+        imageFile: {
+          isVisible: { list: false, filter: false, show: false, edit: true },
+          description: 'Upload a new image to replace the current one.',
+        },
+        imageUrl: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+      },
+      actions: {
+        new: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.created_at;
+            delete payload.updated_at;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+
+            return { ...request, payload };
+          },
+        },
+        edit: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.created_at;
+            delete payload.updated_at;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+
+            return { ...request, payload };
+          },
+        },
+      },
+    },
+    features: [buildImageUploadFeature({ folder: 'categories', keyProperty: 'imageUrl', fileProperty: 'imageFile' })],
+  };
+
+  const homeMenuItemResource = {
+    resource: db.HomeMenuItem,
+    options: {
+      navigation: { name: 'Website Content', icon: 'Restaurant' },
+      listProperties: ['title', 'price', 'displayOrder', 'isActive', 'updatedAt'],
+      filterProperties: ['title', 'isActive'],
+      editProperties: ['title', 'description', 'price', 'imageFile', 'displayOrder', 'isActive'],
+      properties: {
+        description: { type: 'textarea' },
+        imageFile: {
+          isVisible: { list: false, filter: false, show: false, edit: true },
+          description: 'Upload a new image to replace the current one.',
+        },
+        imageUrl: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+      },
+      actions: {
+        new: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.created_at;
+            delete payload.updated_at;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+
+            return { ...request, payload };
+          },
+        },
+        edit: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.created_at;
+            delete payload.updated_at;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+
+            return { ...request, payload };
+          },
+        },
+      },
+    },
+    features: [buildImageUploadFeature({ folder: 'menu', keyProperty: 'imageUrl', fileProperty: 'imageFile' })],
+  };
+
+  const homeMenuTabResource = {
+    resource: db.HomeMenuTab,
+    options: {
+      navigation: { name: 'Website Content', icon: 'Menu' },
+      listProperties: ['name', 'displayOrder', 'isActive', 'updatedAt'],
+      filterProperties: ['name', 'isActive'],
+      editProperties: ['name', 'displayOrder', 'isActive'],
+    },
+  };
+
   const populateFlat = (params, prefix, obj) => {
     if (Array.isArray(obj)) {
       obj.forEach((val, i) => populateFlat(params, `${prefix}.${i}`, val));
@@ -442,11 +828,21 @@ async function createAdmin() {
   pricingResource.options.actions.edit.after = [syncAdminUI];
   pricingResource.options.actions.show = { after: [syncAdminUI] };
 
-
   return new AdminJS({
     databases: [db.sequelize],
     rootPath: appConfig.admin.path,
-    resources: [userResource, productResource, orderResource, tableResource, pricingResource],
+    componentLoader,
+    resources: [
+      userResource,
+      productResource,
+      orderResource,
+      tableResource,
+      pricingResource,
+      homeContentResource,
+      homeCategoryResource,
+      homeMenuItemResource,
+      homeMenuTabResource,
+    ],
     branding: {
       companyName: 'ZaykaPOS Admin',
       logo: false,
