@@ -15,9 +15,10 @@ router.post(
   '/',
   authenticate,
   [
-    body('totalAmount').isFloat({ min: 0 }).withMessage('totalAmount must be a positive number'),
+    body('totalAmount').optional().isFloat({ min: 0 }).withMessage('totalAmount must be a positive number'),
     body('tableId').optional().isUUID().withMessage('tableId must be a valid UUID'),
     body('productIds').optional().isArray().withMessage('productIds must be an array'),
+    body('items').optional().isArray().withMessage('items must be an array'),
   ],
   controller.create.bind(controller)
 );

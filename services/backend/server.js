@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const path = require('path');
 
 const appConfig = require('../../config/appConfig');
@@ -53,6 +54,7 @@ app.use('/api/', limiter);
 // ─── Body Parsing ─────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ─── Request Logging ─────────────────────────────────────────────────────────
 app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));

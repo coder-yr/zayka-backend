@@ -23,6 +23,11 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 0,
       },
+      subtotal: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false,
+        defaultValue: 0,
+      },
       taxAmount: {
         type: DataTypes.DECIMAL(10, 2),
         defaultValue: 0,
@@ -30,6 +35,10 @@ module.exports = (sequelize) => {
       discountAmount: {
         type: DataTypes.DECIMAL(10, 2),
         defaultValue: 0,
+      },
+      couponCode: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
       },
       paymentStatus: {
         type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded'),
@@ -70,7 +79,7 @@ module.exports = (sequelize) => {
     Order.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
     Order.belongsTo(models.Table, { foreignKey: 'tableId', as: 'table' });
     Order.belongsToMany(models.Product, {
-      through: 'OrderItems',
+      through: models.OrderItem,
       foreignKey: 'orderId',
       otherKey: 'productId',
       as: 'products',

@@ -1,0 +1,76 @@
+let validationResult;
+try {
+  validationResult = require('express-validator').validationResult;
+} catch (e) {
+  // Fallback no-op when express-validator is unavailable (avoid crash during incremental installs)
+  validationResult = () => ({ isEmpty: () => true, array: () => [] });
+}
+const path = require('path');
+const authService = require(path.resolve(__dirname, '../services/authService'));
+const env = require(path.resolve(__dirname, '../../config/env'));
+
+const REFRESH_TTL_MS = parseInt(process.env.REFRESH_TOKEN_TTL_SECONDS || String(60 * 60 * 24 * 30), 10) * 1000;
+
+async function login(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+
+  const { email, password } = req.body;
+  const result = await authService.login(email, password);
+
+  res.cookie('refreshToken', result.refreshToken, {
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: REFRESH_TTL_MS,
+  });
+
+  return res.json({ success: true, message: 'Login successful', data: { token: result.token, user: result.user } });
+}
+
+async function register(req, res) {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+
+  const user = await authService.register(req.body);
+  return res.status(201).json({ success: true, message: 'User registered successfully', data: user });
+}
+
+async function getProfile(req, res) {
+  const user = await authService.getProfile(req.user.id);
+  return res.json({ success: true, data: user });
+}
+
+async function refresh(req, res) {
+  const refreshToken = req.cookies && req.cookies.refreshToken;
+  try {
+    const result = await authService.refresh(refreshToken);
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: REFRESH_TTL_MS,
+    });
+    return res.json({ success: true, data: { token: result.token, user: result.user } });
+  } catch (err) {
+    res.clearCookie('refreshToken', { path: '/' });
+    throw err;
+  }
+}
+
+async function logout(req, res) {
+  const refreshToken = req.cookies && req.cookies.refreshToken;
+  if (refreshToken) {
+    await authService.revokeRefresh(refreshToken);
+    res.clearCookie('refreshToken', { path: '/' });
+  }
+  return res.json({ success: true, message: 'Logged out successfully' });
+}
+
+module.exports = { login, register, getProfile, refresh, logout };

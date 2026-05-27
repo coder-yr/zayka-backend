@@ -49,14 +49,73 @@ class OrderService {
   }
 
   async create(data) {
-    const { productIds = [], ...orderData } = data;
-    const order = await db.Order.create(orderData);
+    const transaction = await db.sequelize.transaction();
+    try {
+      const { items = [], productIds = [], ...orderData } = data;
 
-    if (productIds.length > 0) {
-      await order.setProducts(productIds);
+      let subtotal = 0;
+      let calculatedTax = 0;
+      let calculatedDiscount = 0;
+      const resolvedItems = [];
+
+      if (items && items.length > 0) {
+        for (const item of items) {
+          const product = await db.Product.findByPk(item.productId, { transaction });
+          if (!product) {
+            throw new Error(`Product with ID ${item.productId} not found`);
+          }
+          const price = parseFloat(item.unitPrice || product.price);
+          const qty = parseInt(item.quantity || 1, 10);
+          subtotal += price * qty;
+          resolvedItems.push({
+            productId: item.productId,
+            quantity: qty,
+            unitPrice: price,
+          });
+        }
+
+        if (orderData.discountAmount !== undefined) {
+          calculatedDiscount = parseFloat(orderData.discountAmount);
+        } else if (orderData.discountPercent) {
+          calculatedDiscount = (subtotal * parseFloat(orderData.discountPercent)) / 100;
+        }
+
+        const taxRate = parseFloat(orderData.taxRate !== undefined ? orderData.taxRate : 5) / 100;
+        const taxableAmount = Math.max(0, subtotal - calculatedDiscount);
+        calculatedTax = taxableAmount * taxRate;
+
+        orderData.subtotal = subtotal;
+        orderData.discountAmount = calculatedDiscount;
+        orderData.taxAmount = calculatedTax;
+        orderData.totalAmount = taxableAmount + calculatedTax;
+      } else {
+        if (orderData.totalAmount && !orderData.subtotal) {
+          orderData.subtotal = parseFloat(orderData.totalAmount);
+        }
+      }
+
+      const order = await db.Order.create(orderData, { transaction });
+
+      if (resolvedItems.length > 0) {
+        for (const item of resolvedItems) {
+          await order.addProduct(item.productId, {
+            through: {
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+            },
+            transaction,
+          });
+        }
+      } else if (productIds.length > 0) {
+        await order.setProducts(productIds, { transaction });
+      }
+
+      await transaction.commit();
+      return this.getById(order.id);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    return this.getById(order.id);
   }
 
   async updateStatus(id, status) {

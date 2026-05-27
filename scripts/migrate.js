@@ -18,6 +18,7 @@ const sequelize = new Sequelize(dbConfig.database, dbConfig.username, dbConfig.p
   port: dbConfig.port,
   dialect: dbConfig.dialect,
   logging: console.log,
+  define: dbConfig.define,
 });
 
 // Load models
@@ -41,9 +42,14 @@ async function migrate() {
 
     if (force) {
       console.warn('⚠️  Running with --force: all tables will be DROPPED and recreated!');
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 0;');
     }
 
     await sequelize.sync({ force, alter });
+
+    if (force) {
+      await sequelize.query('SET FOREIGN_KEY_CHECKS = 1;');
+    }
 
     console.log(`\n✅ Migration completed. [force=${force}, alter=${alter}]`);
     process.exit(0);

@@ -53,7 +53,7 @@ module.exports = (sequelize) => {
 
   Product.associate = (models) => {
     Product.belongsToMany(models.Order, {
-      through: 'OrderItems',
+      through: models.OrderItem,
       foreignKey: 'productId',
       otherKey: 'orderId',
       as: 'orders',

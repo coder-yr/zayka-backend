@@ -28,6 +28,9 @@ router.post(
 // GET /api/auth/profile  (protected)
 router.get('/profile', authenticate, controller.getProfile.bind(controller));
 
+// POST /api/auth/refresh  (rotating refresh token)
+router.post('/refresh', controller.refresh.bind(controller));
+
 // POST /api/auth/logout  (protected)
 router.post('/logout', authenticate, controller.logout.bind(controller));
 
