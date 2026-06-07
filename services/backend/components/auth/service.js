@@ -1,107 +1,163 @@
 const jwt = require('jsonwebtoken');
-const { randomBytes } = require('crypto');
+const { randomUUID } = require('crypto');
 const appConfig = require('../../../../config/appConfig');
 const db = require('../../db');
-const redis = require('../../lib/redisClient');
-
-const REFRESH_TTL = parseInt(process.env.REFRESH_TOKEN_TTL_SECONDS || String(60 * 60 * 24 * 30), 10);
+const { buildRbacContext, normalizeRoleCode } = require('../../utils/rbac');
+const ApiError = require('../../../../src/utils/ApiError');
+const {
+	issueRefreshSession,
+	rotateRefreshToken,
+	revokeByRefreshToken,
+	invalidateAllUserSessions,
+} = require('./refreshTokenStore');
 
 class AuthService {
-	async login(email, password) {
-		const user = await db.User.findOne({ where: { email, isActive: true } });
+	generateAccessToken(user, access, sessionId) {
+		return jwt.sign(
+			{
+				id: user.id,
+				email: user.email,
+				role: access.primaryRole,
+				roles: access.roles,
+				permissions: access.permissions,
+				outletRoles: access.outletRoles,
+				sid: sessionId,
+				jti: randomUUID(),
+			},
+			appConfig.jwt.secret,
+			{
+				expiresIn: appConfig.jwt.expiresIn,
+			}
+		);
+	}
+
+	async loadActiveUserWithRbac(userIdOrEmail, by = 'email') {
+		const where = by === 'email' ? { email: userIdOrEmail, isActive: true } : { id: userIdOrEmail, isActive: true };
+
+		const user = await db.User.findOne({
+			where,
+			include: [
+				{
+					model: db.UserRole,
+					as: 'roleAssignments',
+					required: false,
+					where: { isActive: true },
+					include: [
+						{ model: db.Role, as: 'role', include: [{ model: db.Permission, as: 'permissions' }] },
+						{ model: db.Outlet, as: 'outlet' },
+					],
+				},
+			],
+		});
 
 		if (!user) {
-			const error = new Error('Invalid email or password');
-			error.statusCode = 401;
-			throw error;
+			throw new ApiError(401, 'Invalid email or password', 'AUTH_INVALID_CREDENTIALS');
 		}
+
+		const access = buildRbacContext(user);
+		access.primaryRole = access.primaryRole || normalizeRoleCode(user.role);
+
+		if (!access.primaryRole) {
+			throw new ApiError(403, 'No active role assigned to this account', 'AUTH_ROLE_MISSING');
+		}
+
+		return { user, access };
+	}
+
+	async login(email, password, sessionMeta = {}) {
+		const { user, access } = await this.loadActiveUserWithRbac(email, 'email');
 
 		const isValid = await user.validatePassword(password);
 		if (!isValid) {
-			const error = new Error('Invalid email or password');
-			error.statusCode = 401;
-			throw error;
+			throw new ApiError(401, 'Invalid email or password', 'AUTH_INVALID_CREDENTIALS');
 		}
 
 		await user.update({ lastLogin: new Date() });
-
-		const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, appConfig.jwt.secret, {
-			expiresIn: appConfig.jwt.expiresIn,
-		});
-
-		const refreshToken = randomBytes(64).toString('hex');
-		await redis.set(`refresh:${refreshToken}`, { userId: user.id }, REFRESH_TTL);
+		const session = await issueRefreshSession(user.id, sessionMeta);
+		const token = this.generateAccessToken(user, access, session.session.id);
 
 		return {
 			token,
-			refreshToken,
+			refreshToken: session.refreshToken,
 			user: {
 				id: user.id,
 				name: user.name,
 				email: user.email,
-				role: user.role,
+				role: access.primaryRole,
+				permissions: access.permissions,
+				roles: access.roles,
+				outletRoles: access.outletRoles,
+				sessionId: session.session.id,
 			},
 		};
 	}
 
-	async refresh(oldRefreshToken) {
-		if (!oldRefreshToken) {
-			const err = new Error('Refresh token missing');
-			err.statusCode = 401;
-			throw err;
-		}
-
-		const key = `refresh:${oldRefreshToken}`;
-		const data = await redis.get(key);
-		if (!data || !data.userId) {
-			const err = new Error('Invalid or expired refresh token');
-			err.statusCode = 401;
-			throw err;
-		}
-
-		await redis.del(key);
-		const refreshToken = randomBytes(64).toString('hex');
-		await redis.set(`refresh:${refreshToken}`, { userId: data.userId }, REFRESH_TTL);
-
-		const user = await db.User.findByPk(data.userId);
-		if (!user) {
-			const err = new Error('User not found');
-			err.statusCode = 404;
-			throw err;
-		}
-
-		const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, appConfig.jwt.secret, {
-			expiresIn: appConfig.jwt.expiresIn,
-		});
+	async refresh(oldRefreshToken, sessionMeta = {}, refreshContext = null) {
+		const rotation = await rotateRefreshToken(oldRefreshToken, sessionMeta, refreshContext);
+		const { user, access } = await this.loadActiveUserWithRbac(rotation.session.userId, 'id');
+		const token = this.generateAccessToken(user, access, rotation.session.id);
 
 		return {
 			token,
-			refreshToken,
+			refreshToken: rotation.refreshToken,
 			user: {
 				id: user.id,
 				name: user.name,
 				email: user.email,
-				role: user.role,
+				role: access.primaryRole,
+				permissions: access.permissions,
+				roles: access.roles,
+				outletRoles: access.outletRoles,
+				sessionId: rotation.session.id,
 			},
 		};
 	}
 
 	async revokeRefresh(refreshToken) {
 		if (!refreshToken) return false;
-		await redis.del(`refresh:${refreshToken}`);
-		return true;
+		return revokeByRefreshToken(refreshToken, 'logout');
+	}
+
+	async invalidateAllSessions(userId) {
+		return invalidateAllUserSessions(userId, 'global_logout');
 	}
 
 	async register(data) {
 		const existing = await db.User.findOne({ where: { email: data.email } });
 		if (existing) {
-			const error = new Error('A user with this email already exists');
-			error.statusCode = 409;
-			throw error;
+			throw new ApiError(409, 'A user with this email already exists', 'AUTH_EMAIL_EXISTS');
 		}
 
-		const user = await db.User.create(data);
-		return { id: user.id, name: user.name, email: user.email, role: user.role };
+		const user = await db.User.create({
+			name: data.name,
+			email: data.email,
+			password: data.password,
+			role: null,
+			isActive: false,
+		});
+		return { id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive };
+	}
+
+	async validateSession(userId, sessionId) {
+		if (!sessionId) {
+			throw new ApiError(401, 'Session is invalid or expired', 'AUTH_SESSION_INVALID');
+		}
+
+		const { user, access } = await this.loadActiveUserWithRbac(userId, 'id');
+
+		return {
+			authenticated: true,
+			sessionId,
+			user: {
+				id: user.id,
+				name: user.name,
+				email: user.email,
+				role: access.primaryRole,
+				permissions: access.permissions,
+				roles: access.roles,
+				outletRoles: access.outletRoles,
+			},
+		};
 	}
 
 	async getProfile(userId) {
@@ -110,9 +166,7 @@ class AuthService {
 		});
 
 		if (!user) {
-			const error = new Error('User not found');
-			error.statusCode = 404;
-			throw error;
+			throw new ApiError(404, 'User not found', 'AUTH_USER_NOT_FOUND');
 		}
 
 		return user;

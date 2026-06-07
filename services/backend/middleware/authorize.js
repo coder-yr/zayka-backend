@@ -1,3 +1,5 @@
+const { hasRole, resolveRequestOutletId, normalizeRoleCode } = require('../utils/rbac');
+
 /**
  * Role-based authorization middleware factory.
  * Usage: authorize('admin', 'manager')
@@ -9,10 +11,13 @@ module.exports =
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const requiredRoles = roles.map(normalizeRoleCode).filter(Boolean);
+    const outletId = resolveRequestOutletId(req);
+
+    if (!hasRole(req.user, requiredRoles, outletId)) {
       return res.status(403).json({
         success: false,
-        message: `Access denied. Required role: ${roles.join(' or ')}`,
+        message: `Access denied. Required role: ${requiredRoles.join(' or ')}`,
       });
     }
 

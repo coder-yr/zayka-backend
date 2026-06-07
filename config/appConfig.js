@@ -13,7 +13,12 @@ module.exports = {
   },
   jwt: {
     secret: env.JWT_SECRET,
-    expiresIn: env.JWT_EXPIRES_IN,
+    expiresIn: env.ACCESS_TOKEN_EXPIRES_IN,
+  },
+  auth: {
+    refreshTtlSeconds: env.REFRESH_TOKEN_TTL_SECONDS,
+    cookieSameSite: env.COOKIE_SAME_SITE,
+    cookieSecure: env.NODE_ENV === 'production' ? true : env.COOKIE_SECURE,
   },
   cors: {
     origins: env.ALLOWED_ORIGINS,

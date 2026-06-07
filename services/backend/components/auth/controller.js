@@ -1,8 +1,20 @@
 const { validationResult } = require('express-validator');
 const authService = require('./service');
-const env = require('../../../../config/env');
+const { getAccessCookieOptions, getRefreshCookieOptions } = require('./cookies');
 
-const REFRESH_TTL_MS = parseInt(process.env.REFRESH_TOKEN_TTL_SECONDS || String(60 * 60 * 24 * 30), 10) * 1000;
+function getClientMeta(req) {
+	const forwardedFor = req.headers['x-forwarded-for'];
+	const ipAddress = Array.isArray(forwardedFor)
+		? forwardedFor[0]
+		: typeof forwardedFor === 'string' && forwardedFor.length > 0
+			? forwardedFor.split(',')[0].trim()
+			: req.ip;
+
+	return {
+		ipAddress,
+		userAgent: req.get('user-agent') || null,
+	};
+}
 
 class AuthController {
 	async login(req, res) {
@@ -12,34 +24,29 @@ class AuthController {
 		}
 
 		const { email, password } = req.body;
-		const result = await authService.login(email, password);
+		const result = await authService.login(email, password, getClientMeta(req));
 
+		res.cookie('accessToken', result.token, getAccessCookieOptions());
 		res.cookie('refreshToken', result.refreshToken, {
-			httpOnly: true,
-			secure: env.NODE_ENV === 'production',
-			sameSite: 'strict',
-			path: '/',
-			maxAge: REFRESH_TTL_MS,
+			...getRefreshCookieOptions(),
 		});
 
 		res.json({ success: true, message: 'Login successful', data: { token: result.token, user: result.user } });
 	}
 
 	async refresh(req, res) {
-		const refreshToken = req.cookies && req.cookies.refreshToken;
+		const refreshToken = req.refreshToken || ((req.cookies && req.cookies.refreshToken) || req.body.refreshToken);
 		try {
-			const result = await authService.refresh(refreshToken);
+			const result = await authService.refresh(refreshToken, getClientMeta(req), req.refreshContext);
 
+			res.cookie('accessToken', result.token, getAccessCookieOptions());
 			res.cookie('refreshToken', result.refreshToken, {
-				httpOnly: true,
-				secure: env.NODE_ENV === 'production',
-				sameSite: 'strict',
-				path: '/',
-				maxAge: REFRESH_TTL_MS,
+				...getRefreshCookieOptions(),
 			});
 
 			return res.json({ success: true, data: { token: result.token, user: result.user } });
 		} catch (err) {
+			res.clearCookie('accessToken', { path: '/' });
 			res.clearCookie('refreshToken', { path: '/' });
 			throw err;
 		}
@@ -60,13 +67,26 @@ class AuthController {
 		res.json({ success: true, data: user });
 	}
 
+	async session(req, res) {
+		const result = await authService.validateSession(req.user.id, req.user.sid);
+		res.json({ success: true, data: result });
+	}
+
 	async logout(req, res) {
-		const refreshToken = req.cookies && req.cookies.refreshToken;
+		const refreshToken = req.refreshToken || (req.cookies && req.cookies.refreshToken);
 		if (refreshToken) {
 			await authService.revokeRefresh(refreshToken);
-			res.clearCookie('refreshToken', { path: '/' });
 		}
+		res.clearCookie('accessToken', { path: '/' });
+		res.clearCookie('refreshToken', { path: '/' });
 		res.json({ success: true, message: 'Logged out successfully' });
+	}
+
+	async logoutAll(req, res) {
+		const count = await authService.invalidateAllSessions(req.user.id);
+		res.clearCookie('accessToken', { path: '/' });
+		res.clearCookie('refreshToken', { path: '/' });
+		res.json({ success: true, message: 'All sessions invalidated', data: { invalidatedSessions: count } });
 	}
 }
 

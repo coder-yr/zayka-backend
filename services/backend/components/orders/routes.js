@@ -1,32 +1,32 @@
 const router = require('express').Router();
 const { body } = require('express-validator');
 const controller = require('./controller');
-const authenticate = require('../../middleware/auth');
-const authorize = require('../../middleware/authorize');
+const { guards } = require('../../middleware/guards');
 
-// GET /api/orders
-router.get('/', authenticate, controller.getAll.bind(controller));
+// GET /api/orders                  — POS read
+router.get('/', ...guards.posRead, controller.getAll.bind(controller));
 
-// GET /api/orders/:id
-router.get('/:id', authenticate, controller.getById.bind(controller));
+// GET /api/orders/:id              — POS read
+router.get('/:id', ...guards.posRead, controller.getById.bind(controller));
 
-// POST /api/orders
+// POST /api/orders                 — POS operate
 router.post(
   '/',
-  authenticate,
+  ...guards.posOperate,
   [
     body('totalAmount').optional().isFloat({ min: 0 }).withMessage('totalAmount must be a positive number'),
     body('tableId').optional().isUUID().withMessage('tableId must be a valid UUID'),
+    body('outletId').optional().isUUID().withMessage('outletId must be a valid UUID'),
     body('productIds').optional().isArray().withMessage('productIds must be an array'),
     body('items').optional().isArray().withMessage('items must be an array'),
   ],
   controller.create.bind(controller)
 );
 
-// PATCH /api/orders/:id/status
+// PATCH /api/orders/:id/status     — Kitchen + staff operations
 router.patch(
   '/:id/status',
-  authenticate,
+  ...guards.kitchenManage,
   [
     body('status')
       .isIn(['pending', 'confirmed', 'preparing', 'ready', 'delivered', 'cancelled'])
@@ -35,11 +35,10 @@ router.patch(
   controller.updateStatus.bind(controller)
 );
 
-// PATCH /api/orders/:id/payment
+// PATCH /api/orders/:id/payment    — Payments management
 router.patch(
   '/:id/payment',
-  authenticate,
-  authorize('admin', 'manager'),
+  ...guards.paymentsManage,
   [
     body('paymentStatus').isIn(['pending', 'paid', 'failed', 'refunded']).withMessage('Invalid payment status'),
     body('paymentMethod').optional().isIn(['cash', 'card', 'upi', 'online']),
@@ -47,7 +46,7 @@ router.patch(
   controller.updatePayment.bind(controller)
 );
 
-// DELETE /api/orders/:id
-router.delete('/:id', authenticate, authorize('admin', 'manager'), controller.delete.bind(controller));
+// DELETE /api/orders/:id           — Manager/Admin operations
+router.delete('/:id', ...guards.managerOperations, controller.delete.bind(controller));
 
 module.exports = router;

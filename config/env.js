@@ -20,6 +20,12 @@ module.exports = {
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'change-this-secret-in-production-min-32-chars!!',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
+  ACCESS_TOKEN_EXPIRES_IN: process.env.ACCESS_TOKEN_EXPIRES_IN || process.env.JWT_EXPIRES_IN || '15m',
+  REFRESH_TOKEN_TTL_SECONDS: parseInt(process.env.REFRESH_TOKEN_TTL_SECONDS, 10) || 60 * 60 * 24 * 30,
+
+  // Auth cookies
+  COOKIE_SAME_SITE: process.env.COOKIE_SAME_SITE || 'strict',
+  COOKIE_SECURE: process.env.COOKIE_SECURE === 'true',
 
   // Admin Panel Credentials (fallback only - use DB user with admin role)
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@zayka.com',

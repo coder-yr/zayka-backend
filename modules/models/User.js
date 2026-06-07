@@ -26,8 +26,11 @@ module.exports = (sequelize) => {
         allowNull: false,
       },
       role: {
-        type: DataTypes.ENUM('admin', 'manager', 'staff'),
-        defaultValue: 'staff',
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        validate: {
+          isIn: [['admin', 'manager', 'cashier', 'waiter', 'kitchen', 'delivery_rider']],
+        },
       },
       isActive: {
         type: DataTypes.BOOLEAN,
@@ -65,6 +68,8 @@ module.exports = (sequelize) => {
 
   User.associate = (models) => {
     User.hasMany(models.Order, { foreignKey: 'userId', as: 'orders' });
+    User.hasMany(models.UserRole, { foreignKey: 'userId', as: 'roleAssignments' });
+    User.hasMany(models.AdminAuditLog, { foreignKey: 'actorId', as: 'adminAuditLogs' });
   };
 
   return User;

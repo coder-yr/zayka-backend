@@ -1,10 +1,9 @@
 const router = require('express').Router();
 const controller = require('./controller');
-const authenticate = require('../../middleware/auth');
-const authorize = require('../../middleware/authorize');
+const { guards } = require('../../middleware/guards');
 
-// All analytics routes require authentication and manager/admin role
-router.use(authenticate, authorize('admin', 'manager'));
+// All analytics routes require authentication and analytics permission
+router.use(...guards.analytics);
 
 // GET /api/analytics/dashboard
 router.get('/dashboard', controller.getDashboard.bind(controller));

@@ -21,6 +21,7 @@ const featuresRoutes = require('./components/features/routes');
 const pricingRoutes = require('./components/pricing/routes');
 const geoRoutes = require('./components/geo/routes');
 const homeContentRoutes = require('./components/home-content/routes');
+const { ensureDefaultRbac } = require('./utils/rbac');
 
 const app = express();
 
@@ -113,6 +114,7 @@ async function startServer() {
       force: env.DB_SYNC_FORCE,
     };
     await db.sequelize.sync(syncOptions);
+    await ensureDefaultRbac(db);
     console.log('✅ Database models synchronized.');
 
     app.listen(PORT, () => {

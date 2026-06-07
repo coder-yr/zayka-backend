@@ -9,6 +9,14 @@ const createAdmin = require('./admin');
 const db = require('./db');
 const env = require('../../config/env');
 const appConfig = require('../../config/appConfig');
+const { ensureDefaultRbac } = require('../backend/utils/rbac');
+const {
+  buildAdminContext,
+  createAdminAuditMiddleware,
+  createAdminSessionMiddleware,
+  isAdminAllowed,
+  recordAdminAudit,
+} = require('./middleware');
 
 const app = express();
 
@@ -28,7 +36,7 @@ const sessionOptions = {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax',
+    sameSite: appConfig.auth.cookieSameSite,
   },
 };
 
@@ -48,8 +56,51 @@ app.use('/public', express.static(path.resolve(__dirname, '../../public')));
 const PORT = appConfig.admin.port;
 const formidableUploadDir = path.resolve(__dirname, '../../public/uploads/tmp');
 
+const loadAdminUserWithAccess = async (email) => {
+  return db.User.findOne({
+    where: { email, isActive: true },
+    include: [
+      {
+        model: db.UserRole,
+        as: 'roleAssignments',
+        required: false,
+        where: { isActive: true },
+        include: [
+          {
+            model: db.Role,
+            as: 'role',
+            required: false,
+            include: [
+              {
+                model: db.Permission,
+                as: 'permissions',
+                required: false,
+                through: { attributes: [] },
+              },
+            ],
+          },
+          {
+            model: db.Outlet,
+            as: 'outlet',
+            required: false,
+          },
+        ],
+      },
+    ],
+  });
+};
+
 async function startServer() {
   try {
+    app.disable('x-powered-by');
+
+    app.use((req, res, next) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'same-origin');
+      next();
+    });
+
     if (!fs.existsSync(formidableUploadDir)) {
       fs.mkdirSync(formidableUploadDir, { recursive: true });
     }
@@ -62,6 +113,7 @@ async function startServer() {
       force: env.DB_SYNC_FORCE,
     };
     await db.sequelize.sync(syncOptions);
+    await ensureDefaultRbac(db);
     await sessionStore.sync();
     console.log('✅ Database models synchronized.');
 
@@ -74,18 +126,80 @@ async function startServer() {
       adminJs.watch();
     }
 
+    // Serve AdminJS frontend bundles and assets from the local .adminjs folder
+    // This must be mounted before the admin session middleware so assets are
+    // publicly accessible and served with correct MIME types.
+    const adminAssetsDir = path.resolve(__dirname, '.adminjs');
+    app.use(
+      path.join(adminJs.options.rootPath, 'frontend', 'assets'),
+      express.static(adminAssetsDir)
+    );
+
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(
       adminJs,
       {
         authenticate: async (email, password) => {
           try {
-            const user = await db.User.findOne({ where: { email, isActive: true, role: 'admin' } });
-            if (!user) return null;
+            const user = await loadAdminUserWithAccess(email);
+            if (!user) {
+              await recordAdminAudit(db, {
+                actor: { email, role: 'unknown' },
+                action: 'adminjs.auth.login.failure',
+                resource: 'adminjs',
+                route: '/login',
+                method: 'POST',
+                statusCode: 401,
+                outcome: 'failure',
+                metadata: { reason: 'user-not-found-or-inactive' },
+              });
+              return null;
+            }
 
             const valid = await bcrypt.compare(password, user.password);
-            if (!valid) return null;
+            if (!valid) {
+              await recordAdminAudit(db, {
+                actor: { email, role: 'unknown' },
+                action: 'adminjs.auth.login.failure',
+                resource: 'adminjs',
+                route: '/login',
+                method: 'POST',
+                statusCode: 401,
+                outcome: 'failure',
+                metadata: { reason: 'invalid-password' },
+              });
+              return null;
+            }
 
-            return { email: user.email, role: user.role, id: user.id };
+            const adminContext = buildAdminContext(user);
+            if (!isAdminAllowed(adminContext)) {
+              await recordAdminAudit(db, {
+                actor: adminContext,
+                action: 'adminjs.auth.login.denied',
+                resource: 'adminjs',
+                route: '/login',
+                method: 'POST',
+                statusCode: 403,
+                outcome: 'denied',
+                metadata: { reason: 'role-not-allowed' },
+              });
+              return null;
+            }
+
+            await recordAdminAudit(db, {
+              actor: adminContext,
+              action: 'adminjs.auth.login.success',
+              resource: 'adminjs',
+              route: '/login',
+              method: 'POST',
+              statusCode: 200,
+              outcome: 'success',
+              metadata: {
+                role: adminContext.role,
+                permissions: adminContext.permissions,
+              },
+            });
+
+            return adminContext;
           } catch {
             return null;
           }
@@ -101,6 +215,9 @@ async function startServer() {
       }
     );
 
+    app.use(adminJs.options.rootPath, session(sessionOptions));
+    app.use(adminJs.options.rootPath, createAdminSessionMiddleware({ db, rootPath: adminJs.options.rootPath }));
+    app.use(adminJs.options.rootPath, createAdminAuditMiddleware({ db, rootPath: adminJs.options.rootPath }));
     app.use(adminJs.options.rootPath, adminRouter);
 
     // AdminJS expects body parser middleware to be mounted after the admin router.

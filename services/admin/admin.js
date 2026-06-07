@@ -1,6 +1,7 @@
 const db = require('./db');
 const appConfig = require('../../config/appConfig');
 const path = require('path');
+const { decorateAdminResource } = require('./middleware');
 
 async function createAdmin() {
   const [{ default: AdminJS, ComponentLoader }, AdminJSSequelize, { default: uploadFeature }] = await Promise.all([
@@ -54,7 +55,7 @@ async function createAdmin() {
       listProperties: ['id', 'name', 'email', 'role', 'isActive', 'lastLogin', 'createdAt'],
       filterProperties: ['name', 'email', 'role', 'isActive'],
       showProperties: ['id', 'name', 'email', 'role', 'isActive', 'lastLogin', 'createdAt', 'updatedAt'],
-      editProperties: ['name', 'email', 'password', 'role', 'isActive'],
+      editProperties: ['name', 'email', 'password', 'isActive'],
       properties: {
         password: {
           isVisible: { list: false, filter: false, show: false, edit: true },
@@ -68,6 +69,56 @@ async function createAdmin() {
           isAccessible: ({ currentAdmin }) => currentAdmin && currentAdmin.role === 'admin',
         },
       },
+    },
+  };
+
+  const outletResource = {
+    resource: db.Outlet,
+    options: {
+      navigation: { name: 'RBAC', icon: 'MapPin' },
+      listProperties: ['code', 'name', 'slug', 'isActive', 'updatedAt'],
+      filterProperties: ['code', 'name', 'isActive'],
+      editProperties: ['code', 'name', 'slug', 'description', 'address', 'timezone', 'isActive', 'metadata'],
+    },
+  };
+
+  const roleResource = {
+    resource: db.Role,
+    options: {
+      navigation: { name: 'RBAC', icon: 'Shield' },
+      listProperties: ['code', 'name', 'scope', 'priority', 'isActive', 'updatedAt'],
+      filterProperties: ['code', 'scope', 'isActive'],
+      editProperties: ['code', 'name', 'description', 'scope', 'priority', 'isActive'],
+    },
+  };
+
+  const permissionResource = {
+    resource: db.Permission,
+    options: {
+      navigation: { name: 'RBAC', icon: 'KeyRound' },
+      listProperties: ['code', 'resource', 'action', 'isActive', 'updatedAt'],
+      filterProperties: ['resource', 'action', 'isActive'],
+      editProperties: ['code', 'resource', 'action', 'description', 'isSystem', 'isActive'],
+    },
+  };
+
+  const rolePermissionResource = {
+    resource: db.RolePermission,
+    options: {
+      navigation: { name: 'RBAC', icon: 'Link' },
+      listProperties: ['roleId', 'permissionId', 'createdAt'],
+      filterProperties: ['roleId', 'permissionId'],
+      editProperties: ['roleId', 'permissionId'],
+    },
+  };
+
+  const userRoleResource = {
+    resource: db.UserRole,
+    options: {
+      navigation: { name: 'RBAC', icon: 'BadgeCheck' },
+      listProperties: ['userId', 'roleId', 'outletId', 'isPrimary', 'isActive', 'updatedAt'],
+      filterProperties: ['userId', 'roleId', 'outletId', 'isPrimary', 'isActive'],
+      editProperties: ['userId', 'roleId', 'outletId', 'isPrimary', 'isActive'],
     },
   };
 
@@ -114,6 +165,38 @@ async function createAdmin() {
       listProperties: ['tableNumber', 'capacity', 'status', 'floor', 'section', 'isActive'],
       filterProperties: ['status', 'floor', 'isActive'],
       editProperties: ['tableNumber', 'capacity', 'status', 'floor', 'section', 'isActive'],
+    },
+  };
+
+  const adminAuditLogResource = {
+    resource: db.AdminAuditLog,
+    options: {
+      navigation: { name: 'Security', icon: 'Shield' },
+      listProperties: ['action', 'resource', 'actorEmail', 'actorRole', 'outcome', 'statusCode', 'createdAt'],
+      filterProperties: ['action', 'resource', 'actorEmail', 'actorRole', 'outcome', 'statusCode'],
+      showProperties: [
+        'id',
+        'actorId',
+        'actorEmail',
+        'actorRole',
+        'action',
+        'resource',
+        'resourceId',
+        'route',
+        'method',
+        'statusCode',
+        'outcome',
+        'ipAddress',
+        'userAgent',
+        'outletId',
+        'metadata',
+        'createdAt',
+      ],
+      actions: {
+        new: false,
+        edit: false,
+        delete: false,
+      },
     },
   };
 
@@ -773,6 +856,68 @@ async function createAdmin() {
     },
   };
 
+  const featureResource = {
+    resource: db.Feature,
+    options: {
+      navigation: { name: 'Website Content', icon: 'Star' },
+      listProperties: ['title', 'slug', 'showInMenu', 'showOnHome', 'isActive', 'order'],
+      filterProperties: ['title', 'showInMenu', 'showOnHome', 'isActive'],
+      editProperties: [
+        'title',
+        'slug',
+        'shortDescription',
+        'description',
+        'icon',
+        'imageFile',
+        'order',
+        'menuOrder',
+        'homeOrder',
+        'showInMenu',
+        'showOnHome',
+        'isActive',
+        'highlight',
+      ],
+      properties: {
+        description: { type: 'textarea' },
+        shortDescription: { type: 'textarea' },
+        imageFile: {
+          isVisible: { list: false, filter: false, show: false, edit: true },
+          description: 'Upload a new feature image.',
+        },
+        image: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFilePath: { isVisible: { list: false, filter: false, show: false, edit: false } },
+        imageFileToDelete: { isVisible: { list: false, filter: false, show: false, edit: false } },
+      },
+      actions: {
+        new: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+            return { ...request, payload };
+          },
+        },
+        edit: {
+          before: async (request) => {
+            if (request.method !== 'post' && request.method !== 'put') return request;
+            const payload = { ...(request.payload || {}) };
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.imageFilePath;
+            delete payload.imageFileToDelete;
+            return { ...request, payload };
+          },
+        },
+      },
+    },
+    features: [
+      buildImageUploadFeature({ folder: 'features', keyProperty: 'image', fileProperty: 'imageFile' }),
+    ],
+  };
+
   const populateFlat = (params, prefix, obj) => {
     if (Array.isArray(obj)) {
       obj.forEach((val, i) => populateFlat(params, `${prefix}.${i}`, val));
@@ -828,20 +973,155 @@ async function createAdmin() {
   pricingResource.options.actions.edit.after = [syncAdminUI];
   pricingResource.options.actions.show = { after: [syncAdminUI] };
 
+  const securedUserResource = decorateAdminResource(userResource, {
+    db,
+    resourceName: 'users',
+    readPermissions: ['users.manage'],
+    writePermissions: ['users.manage'],
+    deletePermissions: ['users.manage'],
+  });
+
+  const securedOutletResource = decorateAdminResource(outletResource, {
+    db,
+    resourceName: 'outlets',
+    readPermissions: ['outlets.manage'],
+    writePermissions: ['outlets.manage'],
+    deletePermissions: ['outlets.manage'],
+  });
+
+  const securedRoleResource = decorateAdminResource(roleResource, {
+    db,
+    resourceName: 'roles',
+    readPermissions: ['rbac.manage_roles'],
+    writePermissions: ['rbac.manage_roles'],
+    deletePermissions: ['rbac.manage_roles'],
+  });
+
+  const securedPermissionResource = decorateAdminResource(permissionResource, {
+    db,
+    resourceName: 'permissions',
+    readPermissions: ['rbac.manage_permissions'],
+    writePermissions: ['rbac.manage_permissions'],
+    deletePermissions: ['rbac.manage_permissions'],
+  });
+
+  const securedRolePermissionResource = decorateAdminResource(rolePermissionResource, {
+    db,
+    resourceName: 'role_permissions',
+    readPermissions: ['rbac.manage_roles'],
+    writePermissions: ['rbac.manage_roles'],
+    deletePermissions: ['rbac.manage_roles'],
+  });
+
+  const securedUserRoleResource = decorateAdminResource(userRoleResource, {
+    db,
+    resourceName: 'user_roles',
+    readPermissions: ['rbac.manage_roles'],
+    writePermissions: ['rbac.manage_roles'],
+    deletePermissions: ['rbac.manage_roles'],
+  });
+
+  const securedProductResource = decorateAdminResource(productResource, {
+    db,
+    resourceName: 'products',
+    readPermissions: ['menu.manage'],
+    writePermissions: ['menu.manage'],
+    deletePermissions: ['menu.manage'],
+  });
+
+  const securedOrderResource = decorateAdminResource(orderResource, {
+    db,
+    resourceName: 'orders',
+    readPermissions: ['orders.read'],
+    writePermissions: ['orders.manage'],
+    deletePermissions: ['orders.manage'],
+  });
+
+  const securedTableResource = decorateAdminResource(tableResource, {
+    db,
+    resourceName: 'tables',
+    readPermissions: ['tables.read'],
+    writePermissions: ['tables.manage'],
+    deletePermissions: ['tables.manage'],
+  });
+
+  const securedPricingResource = decorateAdminResource(pricingResource, {
+    db,
+    resourceName: 'pricing',
+    readPermissions: ['pricing.manage'],
+    writePermissions: ['pricing.manage'],
+    deletePermissions: ['pricing.manage'],
+  });
+
+  const securedHomeContentResource = decorateAdminResource(homeContentResource, {
+    db,
+    resourceName: 'home_content',
+    readPermissions: ['content.manage'],
+    writePermissions: ['content.manage'],
+    deletePermissions: ['content.manage'],
+  });
+
+  const securedHomeCategoryResource = decorateAdminResource(homeCategoryResource, {
+    db,
+    resourceName: 'home_categories',
+    readPermissions: ['content.manage'],
+    writePermissions: ['content.manage'],
+    deletePermissions: ['content.manage'],
+  });
+
+  const securedHomeMenuItemResource = decorateAdminResource(homeMenuItemResource, {
+    db,
+    resourceName: 'home_menu_items',
+    readPermissions: ['menu.manage'],
+    writePermissions: ['menu.manage'],
+    deletePermissions: ['menu.manage'],
+  });
+
+  const securedHomeMenuTabResource = decorateAdminResource(homeMenuTabResource, {
+    db,
+    resourceName: 'home_menu_tabs',
+    readPermissions: ['menu.manage'],
+    writePermissions: ['menu.manage'],
+    deletePermissions: ['menu.manage'],
+  });
+
+  const securedFeatureResource = decorateAdminResource(featureResource, {
+    db,
+    resourceName: 'features',
+    readPermissions: ['content.manage'],
+    writePermissions: ['content.manage'],
+    deletePermissions: ['content.manage'],
+  });
+
+  const securedAdminAuditLogResource = decorateAdminResource(adminAuditLogResource, {
+    db,
+    resourceName: 'admin_audit_logs',
+    readPermissions: ['rbac.manage_roles'],
+    writePermissions: [],
+    deletePermissions: [],
+  });
+
   return new AdminJS({
     databases: [db.sequelize],
     rootPath: appConfig.admin.path,
     componentLoader,
     resources: [
-      userResource,
-      productResource,
-      orderResource,
-      tableResource,
-      pricingResource,
-      homeContentResource,
-      homeCategoryResource,
-      homeMenuItemResource,
-      homeMenuTabResource,
+      securedUserResource,
+      securedOutletResource,
+      securedRoleResource,
+      securedPermissionResource,
+      securedRolePermissionResource,
+      securedUserRoleResource,
+      securedProductResource,
+      securedOrderResource,
+      securedTableResource,
+      securedPricingResource,
+      securedHomeContentResource,
+      securedHomeCategoryResource,
+      securedHomeMenuItemResource,
+      securedHomeMenuTabResource,
+      securedFeatureResource,
+      securedAdminAuditLogResource,
     ],
     branding: {
       companyName: 'ZaykaPOS Admin',

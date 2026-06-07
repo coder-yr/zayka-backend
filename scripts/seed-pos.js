@@ -8,7 +8,7 @@ async function seed() {
 
     // 1. Seed Users
     const usersCount = await db.User.count();
-    let adminUser, staffUser;
+    let adminUser, cashierUser;
     if (usersCount === 0) {
       adminUser = await db.User.create({
         name: 'Admin Cashier',
@@ -17,17 +17,17 @@ async function seed() {
         role: 'admin',
         isActive: true,
       });
-      staffUser = await db.User.create({
+      cashierUser = await db.User.create({
         name: 'Jane Cashier',
         email: 'cashier@zayka.com',
         password: 'cashierpassword',
-        role: 'staff',
+        role: 'cashier',
         isActive: true,
       });
       console.log('✅ Created default users: admin@zayka.com / cashier@zayka.com');
     } else {
       adminUser = await db.User.findOne({ where: { role: 'admin' } });
-      staffUser = await db.User.findOne({ where: { role: 'staff' } });
+      cashierUser = await db.User.findOne({ where: { role: 'cashier' } });
       console.log('ℹ️ Users already exist, skipping user seed.');
     }
 

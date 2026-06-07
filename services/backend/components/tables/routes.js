@@ -1,8 +1,7 @@
 const router = require('express').Router();
 const { body } = require('express-validator');
 const controller = require('./controller');
-const authenticate = require('../../middleware/auth');
-const authorize = require('../../middleware/authorize');
+const { guards } = require('../../middleware/guards');
 
 // GET /api/tables         — public
 router.get('/', controller.getAll.bind(controller));
@@ -13,8 +12,7 @@ router.get('/:id', controller.getById.bind(controller));
 // POST /api/tables        — admin, manager
 router.post(
   '/',
-  authenticate,
-  authorize('admin', 'manager'),
+  ...guards.tableManage,
   [
     body('tableNumber').trim().notEmpty().withMessage('Table number is required'),
     body('capacity').isInt({ min: 1 }).withMessage('Capacity must be at least 1'),
@@ -23,9 +21,9 @@ router.post(
 );
 
 // PUT /api/tables/:id     — admin, manager
-router.put('/:id', authenticate, authorize('admin', 'manager'), controller.update.bind(controller));
+router.put('/:id', ...guards.tableManage, controller.update.bind(controller));
 
 // DELETE /api/tables/:id  — admin only
-router.delete('/:id', authenticate, authorize('admin'), controller.delete.bind(controller));
+router.delete('/:id', ...guards.adminApis, controller.delete.bind(controller));
 
 module.exports = router;

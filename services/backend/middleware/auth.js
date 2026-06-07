@@ -1,21 +1,36 @@
 const jwt = require('jsonwebtoken');
 const appConfig = require('../../../config/appConfig');
+const { isSessionActive } = require('../components/auth/refreshTokenStore');
 
 /**
  * JWT authentication middleware.
  * Expects: Authorization: Bearer <token>
  */
-module.exports = (req, res, next) => {
+module.exports = async (req, res, next) => {
   const authHeader = req.headers.authorization;
+  const cookieToken = req.cookies && req.cookies.accessToken;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : cookieToken;
+
+  if (!token) {
     return res.status(401).json({ success: false, message: 'No authentication token provided' });
   }
 
-  const token = authHeader.split(' ')[1];
-
   try {
     const decoded = jwt.verify(token, appConfig.jwt.secret);
+
+    if (!decoded.sid) {
+      return res.status(401).json({ success: false, message: 'Session information missing from token' });
+    }
+
+    const activeSession = await isSessionActive(decoded.sid);
+    if (!activeSession) {
+      return res.status(401).json({ success: false, message: 'Session is invalidated' });
+    }
+
+    req.authToken = token;
     req.user = decoded;
     next();
   } catch (err) {
